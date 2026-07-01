@@ -1,0 +1,12 @@
+{
+    "name": "osgearth-pc-client",
+    "version-string": "1.0.0",
+    "description": "纯PC端本地三维数据浏览客户端 (osgEarth + OSG)",
+    "dependencies": [
+        {
+            "name": "osgearth",
+            "default-features": false
+        },
+        "gdal"
+    ]
+}

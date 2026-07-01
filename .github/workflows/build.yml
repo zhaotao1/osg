@@ -1,7 +1,8 @@
 name: build-and-package
 
 # 推送 tag (v*) 或手动触发时, 在 macOS + Windows 上分别构建并产出安装包。
-# 依赖(osgEarth/OSG/GDAL/PROJ) 使用 conda-forge 预编译二进制, 无需源码编译, 速度快。
+# 依赖(osgEarth/OSG/GDAL/PROJ) 用 vcpkg 构建, 并把编译产物缓存到 GitHub Actions
+# 二进制缓存(x-gha): 首次编译较慢, 之后直接复用预编译二进制, 大幅提速。
 on:
   push:
     tags:
@@ -14,28 +15,37 @@ jobs:
   # ================= macOS: 产出 .dmg / .tar.gz =================
   macos:
     runs-on: macos-14
-    defaults:
-      run:
-        shell: bash -el {0}      # 载入 conda 环境
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      # 把 vcpkg 编译产物缓存进 GitHub Actions, 实现"编译一次, 之后复用二进制"
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装 osgEarth (conda-forge 预编译)
-        uses: mamba-org/setup-micromamba@v2
+      - name: 导出 GHA 缓存令牌 (供 vcpkg x-gha 使用)
+        uses: actions/github-script@v7
         with:
-          environment-name: build
-          create-args: >-
-            osgearth
-            gdal
-            cmake
-            ninja
-          cache-environment: true
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: 配置 (Release)
+      - name: 安装构建工具 (Homebrew)
+        run: brew install cmake ninja pkg-config autoconf automake libtool
+
+      - name: 准备 vcpkg
+        run: |
+          if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
+            "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+          fi
+
+      - name: 配置 (Release, vcpkg 装 osgEarth)
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=arm64-osx \
+            -DVCPKG_MANIFEST_MODE=ON
 
       - name: 编译
         run: cmake --build build -j3
@@ -56,41 +66,46 @@ jobs:
   # ================= Windows x64: 产出 .exe / .zip =================
   windows:
     runs-on: windows-2022
-    defaults:
-      run:
-        shell: cmd /C call {0}   # 激活 conda 环境后执行
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装 osgEarth (conda-forge 预编译)
-        uses: mamba-org/setup-micromamba@v2
+      - name: 导出 GHA 缓存令牌 (供 vcpkg x-gha 使用)
+        uses: actions/github-script@v7
         with:
-          environment-name: build
-          create-args: >-
-            osgearth
-            gdal
-            cmake
-            ninja
-          init-shell: cmd.exe
-          cache-environment: true
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: 准备 vcpkg
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+            & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat"
+          }
 
       - name: 安装 NSIS (出 .exe 安装包)
         shell: pwsh
         run: choco install nsis -y
 
-      - name: 配置 (x64 Release)
-        # conda-forge 在 Windows 的库前缀是 %CONDA_PREFIX%\Library
+      - name: 配置 (x64 Release, vcpkg 装 osgEarth)
+        shell: pwsh
         run: |
-          cmake -B build -G Ninja ^
-            -DCMAKE_BUILD_TYPE=Release ^
-            -DCMAKE_PREFIX_PATH="%CONDA_PREFIX%\Library"
+          cmake -B build -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_MANIFEST_MODE=ON
 
       - name: 编译
-        run: cmake --build build -j3
+        run: cmake --build build --config Release -j3
 
       - name: 打包 (CPack ZIP + NSIS)
         working-directory: build
-        run: cpack -G "ZIP;NSIS"
+        run: cpack -G "ZIP;NSIS" -C Release
 
       - name: 上传产物
         uses: actions/upload-artifact@v4

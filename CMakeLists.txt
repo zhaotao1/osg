@@ -93,13 +93,17 @@ if(NOT _osg_lib_dir)
     get_filename_component(_osg_lib_dir "${OSGDB_LIBRARY}" DIRECTORY)
 endif()
 
-# 额外搜索 conda-forge 布局 (预编译二进制): <prefix>/lib 或 <prefix>/Library/bin
+# 额外搜索 conda-forge / vcpkg 布局 (预编译二进制)
+# vcpkg manifest 模式安装树位于 <build>/vcpkg_installed/<triplet>/
 file(GLOB _osg_plugin_dirs
     "${_osg_lib_dir}/osgPlugins-*"
     "${_osg_lib_dir}/../lib/osgPlugins-*"
     "${_osg_lib_dir}/../bin/osgPlugins-*"
     "$ENV{CONDA_PREFIX}/lib/osgPlugins-*"
-    "$ENV{CONDA_PREFIX}/Library/bin/osgPlugins-*")
+    "$ENV{CONDA_PREFIX}/Library/bin/osgPlugins-*"
+    "${CMAKE_BINARY_DIR}/vcpkg_installed/*/plugins/osgPlugins-*"
+    "${CMAKE_BINARY_DIR}/vcpkg_installed/*/bin/osgPlugins-*"
+    "${CMAKE_BINARY_DIR}/vcpkg_installed/*/tools/osg/osgPlugins-*")
 
 if(_osg_plugin_dirs)
     list(GET _osg_plugin_dirs 0 OSG_PLUGIN_DIR)
@@ -118,11 +122,16 @@ else()
 endif()
 
 # ---- 用 CMake 的 file(GET_RUNTIME_DEPENDENCIES) 收集动态库 ----
-# 额外搜索目录: 预编译库(conda/vcpkg)所在的 lib/bin, CI 通过 -DRUNTIME_SEARCH_DIRS 传入
+# 额外搜索目录: 预编译库(conda/vcpkg)所在的 lib/bin, CI 可通过 -DRUNTIME_SEARCH_DIRS 追加
 set(RUNTIME_SEARCH_DIRS "" CACHE STRING "额外的动态库搜索目录(分号分隔), 用于依赖收集")
 list(APPEND RUNTIME_SEARCH_DIRS
     "$ENV{CONDA_PREFIX}/lib"
     "$ENV{CONDA_PREFIX}/Library/bin")
+# vcpkg manifest 安装树的 bin/lib (含 osgEarth/GDAL 的 dll/dylib)
+file(GLOB _vcpkg_bin_dirs
+    "${CMAKE_BINARY_DIR}/vcpkg_installed/*/bin"
+    "${CMAKE_BINARY_DIR}/vcpkg_installed/*/lib")
+list(APPEND RUNTIME_SEARCH_DIRS ${_vcpkg_bin_dirs})
 
 # 在 install 阶段扫描 exe 依赖的 dll/dylib 并拷入包
 install(CODE "
@@ -144,13 +153,15 @@ install(CODE "
 ")
 
 # ---- GDAL 数据 (proj.db 等), 缺了会导致投影/坐标转换失败 ----
-# 同时兼容 conda-forge 布局: <prefix>/share (mac/linux), <prefix>/Library/share (win)
+# 兼容 conda-forge 与 vcpkg manifest 安装树的布局
+file(GLOB _vcpkg_gdal_data "${CMAKE_BINARY_DIR}/vcpkg_installed/*/share/gdal")
+file(GLOB _vcpkg_proj_data "${CMAKE_BINARY_DIR}/vcpkg_installed/*/share/proj")
 find_path(GDAL_DATA_DIR gdalvrt.xsd
-    HINTS $ENV{GDAL_DATA}
+    HINTS $ENV{GDAL_DATA} ${_vcpkg_gdal_data}
           $ENV{CONDA_PREFIX}/share/gdal $ENV{CONDA_PREFIX}/Library/share/gdal
           /usr/local/share/gdal /opt/homebrew/share/gdal /usr/share/gdal)
 find_path(PROJ_DATA_DIR proj.db
-    HINTS $ENV{PROJ_LIB} $ENV{PROJ_DATA}
+    HINTS $ENV{PROJ_LIB} $ENV{PROJ_DATA} ${_vcpkg_proj_data}
           $ENV{CONDA_PREFIX}/share/proj $ENV{CONDA_PREFIX}/Library/share/proj
           /usr/local/share/proj /opt/homebrew/share/proj /usr/share/proj)
 if(GDAL_DATA_DIR)
