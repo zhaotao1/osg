@@ -1,0 +1,40 @@
+{
+    "//": "OSGB 白模(倾斜摄影)加载配置 —— 本地磁盘直读, 无需转换",
+    "//path": "指向 OSGB 数据集顶层: 通常是含 Data/Tile_+xxx/Tile_+xxx.osgb 的目录, 或直接指向单个入口 osgb / 合并 osgb",
+    "//origin": "OSGB 是局部 ENU 坐标, 需给出数据集原点经纬度(见 metadata.xml 的 <SRS>/<SRSOrigin>)才能正确落在地球上",
+    "models": [
+        {
+            "name": "实景三维白模-A区",
+            "path": "./data/osgb/Tile_A/Data",
+            "enabled": true,
+            "origin": {
+                "srs": "EPSG:4326",
+                "longitude": 116.391,
+                "latitude": 39.901,
+                "height": 40.0
+            },
+            "//note": "若 metadata.xml 给的是 EPSG:4547 等投影带, 把 srs 换成该 EPSG, longitude/latitude 换成投影坐标 x/y"
+        },
+        {
+            "name": "实景三维白模-B区",
+            "path": "./data/osgb/Tile_B/Data",
+            "enabled": false,
+            "origin": {
+                "srs": "EPSG:4326",
+                "longitude": 116.395,
+                "latitude": 39.903,
+                "height": 40.0
+            }
+        }
+    ],
+
+    "performance": {
+        "//": "运行期性能与流畅度参数",
+        "targetFrameRate": 60,
+        "lodScale": 1.0,
+        "databasePagerThreads": 4,
+        "maxPagedLodInMemory": 0,
+        "smallFeatureCulling": true,
+        "incrementalCompile": true
+    }
+}

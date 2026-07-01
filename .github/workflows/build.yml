@@ -1,0 +1,118 @@
+name: build-and-package
+
+# 推送 tag (v*) 或手动触发时, 在 macOS + Windows 上分别构建并产出安装包
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # ================= macOS: 产出 .dmg / .tar.gz =================
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装依赖 (Homebrew)
+        run: |
+          brew update
+          brew install open-scene-graph osgearth gdal cmake
+
+      - name: 配置 (Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: 编译
+        run: cmake --build build --config Release -j3
+
+      - name: 打包 (CPack DragNDrop + TGZ)
+        working-directory: build
+        run: cpack -G "DragNDrop;TGZ"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-package
+          path: |
+            build/*.dmg
+            build/*.tar.gz
+          if-no-files-found: warn
+
+  # ================= Windows x64: 产出 .exe / .zip =================
+  windows:
+    runs-on: windows-2022
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 缓存 vcpkg 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg
+            !${{ github.workspace }}/vcpkg/buildtrees
+            !${{ github.workspace }}/vcpkg/packages
+            !${{ github.workspace }}/vcpkg/downloads
+          key: vcpkg-osgearth-${{ runner.os }}-x64
+
+      - name: 安装 vcpkg + osgEarth
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT/vcpkg.exe")) {
+            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+            & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
+          }
+          & "$env:VCPKG_ROOT/vcpkg.exe" install osgearth[core]:x64-windows
+
+      - name: 安装 NSIS (出 .exe 安装包)
+        shell: pwsh
+        run: choco install nsis -y
+
+      - name: 配置 (x64 Release)
+        shell: pwsh
+        run: |
+          cmake -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: 编译
+        run: cmake --build build --config Release -j3
+
+      - name: 打包 (CPack ZIP + NSIS)
+        working-directory: build
+        run: cpack -G "ZIP;NSIS" -C Release
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: |
+            build/*.zip
+            build/*.exe
+          if-no-files-found: warn
+
+  # ============ 打 tag 时把两平台产物汇总发布到 Release ============
+  release:
+    needs: [ macos, windows ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载所有产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/*.dmg
+            dist/**/*.tar.gz
+            dist/**/*.zip
+            dist/**/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

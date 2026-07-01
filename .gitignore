@@ -1,0 +1,18 @@
+# build
+/build/
+/bin/
+*.o
+*.obj
+
+# data (本地大数据不入库)
+/data/
+earth/data/
+config/data/
+
+# IDE
+.vscode/
+.idea/
+*.user
+
+# macOS
+.DS_Store

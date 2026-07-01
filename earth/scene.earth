@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  纯 PC 端本地直读场景配置 (osgEarth 3.x)
+  =========================================================
+  三类栅格/矢量数据通过 GDAL/OGR 直接读取本地磁盘文件,
+  白模 (OSGB) 由客户端 config/models.json 单独加载。
+
+  使用说明:
+    1. 把下面各 <url> 改成你本地数据的真实绝对路径。
+    2. 影像/DEM 建议先执行 gdaladdo 建金字塔 (见 README)。
+    3. 坐标系统一到 CGCS2000 / WGS84 (EPSG:4326) 后加载最省心。
+-->
+<map name="PC本地三维场景" type="geocentric">
+
+    <!-- ============ 1. DEM / DSM 地形高程 (GDAL 直读) ============ -->
+    <GDALElevation name="DEM高程">
+        <url>./data/dem/DEM.tif</url>
+        <!-- 采样后台线程数, 大数据可调高 -->
+        <max_data_level>16</max_data_level>
+    </GDALElevation>
+
+    <!-- ============ 2. DOM 遥感影像 (GDAL 直读, 带金字塔) ============ -->
+    <GDALImage name="DOM影像">
+        <url>./data/dom/DOM.tif</url>
+        <!-- 若目录下多景影像, 可换成 .vrt 镶嵌: ./data/dom/mosaic.vrt -->
+        <coverage>false</coverage>
+    </GDALImage>
+
+    <!-- 无影像时的底图兜底 (可删) -->
+    <GDALImage name="底图占位">
+        <url>./data/basemap/world.tif</url>
+        <visible>false</visible>
+    </GDALImage>
+
+    <!-- ============ 3. 矢量数据 (OGR 直读: SHP/GeoJSON/GDB) ============ -->
+    <FeatureModel name="矢量-面">
+        <OGRFeatures name="polygons">
+            <url>./data/vector/area.shp</url>
+        </OGRFeatures>
+        <styles>
+            <style type="text/css">
+                default {
+                    fill:               #40a0ff80;
+                    stroke:             #ffffffff;
+                    stroke-width:       1.5px;
+                    altitude-clamping:  terrain-drape;
+                }
+            </style>
+        </styles>
+    </FeatureModel>
+
+    <FeatureModel name="矢量-线">
+        <OGRFeatures name="lines">
+            <url>./data/vector/road.shp</url>
+        </OGRFeatures>
+        <styles>
+            <style type="text/css">
+                default {
+                    stroke:             #ffd040ff;
+                    stroke-width:       2px;
+                    altitude-clamping:  terrain-gpu;
+                }
+            </style>
+        </styles>
+    </FeatureModel>
+
+    <!-- ============ 视点: 打开后自动飞到数据范围 ============ -->
+    <viewpoints>
+        <viewpoint name="数据总览">
+            <heading>0</heading>
+            <pitch>-30</pitch>
+            <range>3000</range>
+            <!-- 改成你数据中心的经纬度 -->
+            <long>116.39</long>
+            <lat>39.90</lat>
+            <height>50</height>
+        </viewpoint>
+    </viewpoints>
+
+    <options>
+        <!-- 地形 LOD 屏幕误差, 越小越精细越吃性能 -->
+        <terrain
+            driver="rex"
+            min_tile_range_factor="7"
+            tile_size="17"
+            skirt_ratio="0.05"
+            morph_terrain="true"
+            morph_imagery="true"
+            concurrency="4"/>
+    </options>
+
+</map>
