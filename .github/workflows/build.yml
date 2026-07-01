@@ -1,6 +1,7 @@
 name: build-and-package
 
-# 推送 tag (v*) 或手动触发时, 在 macOS + Windows 上分别构建并产出安装包
+# 推送 tag (v*) 或手动触发时, 在 macOS + Windows 上分别构建并产出安装包。
+# 依赖(osgEarth/OSG/GDAL/PROJ) 使用 conda-forge 预编译二进制, 无需源码编译, 速度快。
 on:
   push:
     tags:
@@ -13,44 +14,31 @@ jobs:
   # ================= macOS: 产出 .dmg / .tar.gz =================
   macos:
     runs-on: macos-14
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    defaults:
+      run:
+        shell: bash -el {0}      # 载入 conda 环境
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装构建工具 (Homebrew)
-        # 注意: Homebrew 没有 osgearth formula, 只用它装构建工具; osgEarth 走 vcpkg
-        run: |
-          brew update
-          brew install cmake ninja pkg-config autoconf automake libtool
-
-      - name: 缓存 vcpkg 依赖
-        uses: actions/cache@v4
+      - name: 安装 osgEarth (conda-forge 预编译)
+        uses: mamba-org/setup-micromamba@v2
         with:
-          path: |
-            ${{ github.workspace }}/vcpkg
-            !${{ github.workspace }}/vcpkg/buildtrees
-            !${{ github.workspace }}/vcpkg/packages
-            !${{ github.workspace }}/vcpkg/downloads
-          key: vcpkg-osgearth-macos-arm64
-
-      - name: 安装 vcpkg + osgEarth
-        run: |
-          if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
-            git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-            "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-          fi
-          "$VCPKG_ROOT/vcpkg" install osgearth[core]:arm64-osx
+          environment-name: build
+          create-args: >-
+            osgearth
+            gdal
+            cmake
+            ninja
+          cache-environment: true
 
       - name: 配置 (Release)
         run: |
-          cmake -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=arm64-osx \
-            -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX"
 
       - name: 编译
-        run: cmake --build build --config Release -j3
+        run: cmake --build build -j3
 
       - name: 打包 (CPack DragNDrop + TGZ)
         working-directory: build
@@ -68,48 +56,41 @@ jobs:
   # ================= Windows x64: 产出 .exe / .zip =================
   windows:
     runs-on: windows-2022
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    defaults:
+      run:
+        shell: cmd /C call {0}   # 激活 conda 环境后执行
     steps:
       - uses: actions/checkout@v4
 
-      - name: 缓存 vcpkg 依赖
-        uses: actions/cache@v4
+      - name: 安装 osgEarth (conda-forge 预编译)
+        uses: mamba-org/setup-micromamba@v2
         with:
-          path: |
-            ${{ github.workspace }}/vcpkg
-            !${{ github.workspace }}/vcpkg/buildtrees
-            !${{ github.workspace }}/vcpkg/packages
-            !${{ github.workspace }}/vcpkg/downloads
-          key: vcpkg-osgearth-${{ runner.os }}-x64
-
-      - name: 安装 vcpkg + osgEarth
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "$env:VCPKG_ROOT/vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
-            & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
-          }
-          & "$env:VCPKG_ROOT/vcpkg.exe" install osgearth[core]:x64-windows
+          environment-name: build
+          create-args: >-
+            osgearth
+            gdal
+            cmake
+            ninja
+          init-shell: cmd.exe
+          cache-environment: true
 
       - name: 安装 NSIS (出 .exe 安装包)
         shell: pwsh
         run: choco install nsis -y
 
       - name: 配置 (x64 Release)
-        shell: pwsh
+        # conda-forge 在 Windows 的库前缀是 %CONDA_PREFIX%\Library
         run: |
-          cmake -B build -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_PREFIX_PATH="%CONDA_PREFIX%\Library"
 
       - name: 编译
-        run: cmake --build build --config Release -j3
+        run: cmake --build build -j3
 
       - name: 打包 (CPack ZIP + NSIS)
         working-directory: build
-        run: cpack -G "ZIP;NSIS" -C Release
+        run: cpack -G "ZIP;NSIS"
 
       - name: 上传产物
         uses: actions/upload-artifact@v4

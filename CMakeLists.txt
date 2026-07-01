@@ -93,10 +93,13 @@ if(NOT _osg_lib_dir)
     get_filename_component(_osg_lib_dir "${OSGDB_LIBRARY}" DIRECTORY)
 endif()
 
+# 额外搜索 conda-forge 布局 (预编译二进制): <prefix>/lib 或 <prefix>/Library/bin
 file(GLOB _osg_plugin_dirs
     "${_osg_lib_dir}/osgPlugins-*"
     "${_osg_lib_dir}/../lib/osgPlugins-*"
-    "${_osg_lib_dir}/../bin/osgPlugins-*")
+    "${_osg_lib_dir}/../bin/osgPlugins-*"
+    "$ENV{CONDA_PREFIX}/lib/osgPlugins-*"
+    "$ENV{CONDA_PREFIX}/Library/bin/osgPlugins-*")
 
 if(_osg_plugin_dirs)
     list(GET _osg_plugin_dirs 0 OSG_PLUGIN_DIR)
@@ -115,32 +118,41 @@ else()
 endif()
 
 # ---- 用 CMake 的 file(GET_RUNTIME_DEPENDENCIES) 收集动态库 ----
+# 额外搜索目录: 预编译库(conda/vcpkg)所在的 lib/bin, CI 通过 -DRUNTIME_SEARCH_DIRS 传入
+set(RUNTIME_SEARCH_DIRS "" CACHE STRING "额外的动态库搜索目录(分号分隔), 用于依赖收集")
+list(APPEND RUNTIME_SEARCH_DIRS
+    "$ENV{CONDA_PREFIX}/lib"
+    "$ENV{CONDA_PREFIX}/Library/bin")
+
 # 在 install 阶段扫描 exe 依赖的 dll/dylib 并拷入包
-install(CODE [[
-    message(STATUS "收集运行时依赖 ...")
+install(CODE "
+    message(STATUS \"收集运行时依赖 ...\")
     file(GET_RUNTIME_DEPENDENCIES
-        EXECUTABLES "$<TARGET_FILE:pc_client>"
+        EXECUTABLES \"$<TARGET_FILE:pc_client>\"
         RESOLVED_DEPENDENCIES_VAR _res
         UNRESOLVED_DEPENDENCIES_VAR _unres
-        DIRECTORIES ${CMAKE_INSTALL_PREFIX}/bin
-        PRE_EXCLUDE_REGEXES "api-ms-.*" "ext-ms-.*"
-        POST_EXCLUDE_REGEXES ".*system32.*" ".*/usr/lib/.*" ".*/System/.*")
-    foreach(_dep ${_res})
-        file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/bin"
-             TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN FILES "${_dep}")
+        DIRECTORIES \"\${CMAKE_INSTALL_PREFIX}/bin\" ${RUNTIME_SEARCH_DIRS}
+        PRE_EXCLUDE_REGEXES \"api-ms-.*\" \"ext-ms-.*\"
+        POST_EXCLUDE_REGEXES \".*system32.*\" \".*/usr/lib/.*\" \".*/System/.*\")
+    foreach(_dep \${_res})
+        file(INSTALL DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\"
+             TYPE SHARED_LIBRARY FOLLOW_SYMLINK_CHAIN FILES \"\${_dep}\")
     endforeach()
     if(_unres)
-        message(STATUS "未解析(通常是系统库, 可忽略): ${_unres}")
+        message(STATUS \"未解析(通常是系统库, 可忽略): \${_unres}\")
     endif()
-]])
+")
 
 # ---- GDAL 数据 (proj.db 等), 缺了会导致投影/坐标转换失败 ----
+# 同时兼容 conda-forge 布局: <prefix>/share (mac/linux), <prefix>/Library/share (win)
 find_path(GDAL_DATA_DIR gdalvrt.xsd
-    HINTS $ENV{GDAL_DATA} /usr/local/share/gdal /opt/homebrew/share/gdal
-          /usr/share/gdal)
+    HINTS $ENV{GDAL_DATA}
+          $ENV{CONDA_PREFIX}/share/gdal $ENV{CONDA_PREFIX}/Library/share/gdal
+          /usr/local/share/gdal /opt/homebrew/share/gdal /usr/share/gdal)
 find_path(PROJ_DATA_DIR proj.db
-    HINTS $ENV{PROJ_LIB} $ENV{PROJ_DATA} /usr/local/share/proj
-          /opt/homebrew/share/proj /usr/share/proj)
+    HINTS $ENV{PROJ_LIB} $ENV{PROJ_DATA}
+          $ENV{CONDA_PREFIX}/share/proj $ENV{CONDA_PREFIX}/Library/share/proj
+          /usr/local/share/proj /opt/homebrew/share/proj /usr/share/proj)
 if(GDAL_DATA_DIR)
     install(DIRECTORY "${GDAL_DATA_DIR}/" DESTINATION bin/gdal-data)
 endif()
