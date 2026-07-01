@@ -41,14 +41,14 @@ jobs:
 
       - name: 配置 (Release, vcpkg 装 osgEarth)
         run: |
-          cmake -B build -G Ninja \
+          cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=arm64-osx \
             -DVCPKG_MANIFEST_MODE=ON
 
       - name: 编译
-        run: cmake --build build -j3
+        run: cmake --build build --config Release -j3
 
       - name: 打包 (CPack DragNDrop + TGZ)
         working-directory: build
