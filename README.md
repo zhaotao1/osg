@@ -183,20 +183,19 @@ scripts\pack_win.bat
 
 ## 九、CI 自动打包（GitHub Actions）
 
-`.github/workflows/build.yml` 已配置好，**同时在 macOS 与 Windows runner 上构建打包**
-（跨平台包不能交叉编译，必须各自平台产出）。
+`.github/workflows/build.yml` 只在 **Windows runner** 上构建打包。
+**macOS 包在本机打**（`bash scripts/pack_mac.sh`）——本机有 Xcode，避免 CI 上的编译器探测问题，
+也更快。跨平台包本就不能交叉编译，各自平台产出即可。
 
 | 触发方式 | 行为 |
 |----------|------|
-| 推送 tag `v*`（`git tag v1.0.0 && git push --tags`） | 两平台打包 + 自动发布到 GitHub Release |
-| 手动触发（Actions 页 `Run workflow`） | 两平台打包，产物在 Artifacts |
+| 推送 tag `v*`（`git tag v1.0.0 && git push --tags`） | Windows 打包 + 自动发布到 GitHub Release |
+| 手动触发（Actions 页 `Run workflow`） | Windows 打包，产物在 Artifacts |
 | PR 到 main/master | 构建验证（不发布） |
 
-**产物**：`mac-package`（`.dmg`/`.tar.gz`）、`windows-package`（`.exe`/`.zip`）。
+**产物**：CI 出 `windows-package`（`.exe`/`.zip`）；`.dmg`/`.tar.gz` 由本机 `pack_mac.sh` 生成，
+需要时手动上传到同一个 Release。
 
-Windows 与 macOS 均用 **vcpkg** 从源码构建 osgEarth，并启用 **GitHub Actions 二进制缓存**
+Windows 用 **vcpkg** 从源码构建 osgEarth，并启用 **GitHub Actions 二进制缓存**
 （`VCPKG_BINARY_SOURCES=clear;x-gha`）：**首次编译较慢（几十分钟），之后直接复用编译好的
 二进制，几分钟完成**。发布 Release 需仓库 Actions 有 `contents: write` 权限。
-
-> 说明：osgEarth 无现成跨平台预编译包，"预编译加速"通过 vcpkg 二进制缓存实现——
-> 编译一次后产物存入 GHA 缓存，后续构建即视为"用预编译二进制"。

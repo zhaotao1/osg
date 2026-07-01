@@ -1,8 +1,9 @@
 name: build-and-package
 
-# 推送 tag (v*) 或手动触发时, 在 macOS + Windows 上分别构建并产出安装包。
+# 推送 tag (v*) 或手动触发时, 在 Windows 上构建并产出安装包。
 # 依赖(osgEarth/OSG/GDAL/PROJ) 用 vcpkg 构建, 并把编译产物缓存到 GitHub Actions
 # 二进制缓存(x-gha): 首次编译较慢, 之后直接复用预编译二进制, 大幅提速。
+# 注意: macOS 包在本机打 (bash scripts/pack_mac.sh), CI 不再构建 mac。
 on:
   push:
     tags:
@@ -12,65 +13,6 @@ on:
     branches: [ main, master ]
 
 jobs:
-  # ================= macOS: 产出 .dmg / .tar.gz =================
-  macos:
-    runs-on: macos-14
-    env:
-      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
-      # 把 vcpkg 编译产物缓存进 GitHub Actions, 实现"编译一次, 之后复用二进制"
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 导出 GHA 缓存令牌 (供 vcpkg x-gha 使用)
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-
-      - name: 安装构建工具 (Homebrew)
-        run: brew install cmake ninja pkg-config autoconf automake libtool
-
-      - name: 选择 Xcode 编译器 (修复 CMAKE_CXX_COMPILER not set)
-        run: |
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-          xcrun --sdk macosx --show-sdk-path
-          echo "CC=$(xcrun -f clang)"   >> "$GITHUB_ENV"
-          echo "CXX=$(xcrun -f clang++)" >> "$GITHUB_ENV"
-          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
-
-      - name: 准备 vcpkg
-        run: |
-          if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
-            git clone --depth 1 https://github.com/microsoft/vcpkg "$VCPKG_ROOT"
-            "$VCPKG_ROOT/bootstrap-vcpkg.sh"
-          fi
-
-      - name: 配置 (Release, vcpkg 装 osgEarth)
-        run: |
-          cmake -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=arm64-osx \
-            -DVCPKG_MANIFEST_MODE=ON
-
-      - name: 编译
-        run: cmake --build build --config Release -j3
-
-      - name: 打包 (CPack DragNDrop + TGZ)
-        working-directory: build
-        run: cpack -G "DragNDrop;TGZ"
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: mac-package
-          path: |
-            build/*.dmg
-            build/*.tar.gz
-          if-no-files-found: warn
-
   # ================= Windows x64: 产出 .exe / .zip =================
   windows:
     runs-on: windows-2022
@@ -124,9 +66,10 @@ jobs:
             build/*.exe
           if-no-files-found: warn
 
-  # ============ 打 tag 时把两平台产物汇总发布到 Release ============
+  # ============ 打 tag 时把 Windows 产物发布到 Release ============
+  # (macOS 包在本机打, 需要时手动上传到同一个 Release)
   release:
-    needs: [ macos, windows ]
+    needs: [ windows ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -139,8 +82,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/**/*.dmg
-            dist/**/*.tar.gz
             dist/**/*.zip
             dist/**/*.exe
         env:
