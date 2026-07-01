@@ -32,6 +32,14 @@ jobs:
       - name: 安装构建工具 (Homebrew)
         run: brew install cmake ninja pkg-config autoconf automake libtool
 
+      - name: 选择 Xcode 编译器 (修复 CMAKE_CXX_COMPILER not set)
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+          xcrun --sdk macosx --show-sdk-path
+          echo "CC=$(xcrun -f clang)"   >> "$GITHUB_ENV"
+          echo "CXX=$(xcrun -f clang++)" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+
       - name: 准备 vcpkg
         run: |
           if [ ! -f "$VCPKG_ROOT/vcpkg" ]; then
